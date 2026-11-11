@@ -1,0 +1,49 @@
+name: Build and file-only tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified 2026-11-11
+        with:
+          persist-credentials: false
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4, verified 2026-11-11
+        with:
+          global-json-file: global.json
+      - name: Compile unsigned Windows application
+        shell: pwsh
+        run: ./scripts/Build.ps1
+      - name: File-only tests and mocked storage guard tests
+        shell: pwsh
+        run: ./scripts/Test.ps1
+      - name: Package unsigned candidate
+        shell: pwsh
+        run: ./scripts/Package.ps1
+      - name: Upload unsigned candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, verified 2026-11-11
+        with:
+          name: PartitionStudio-unsigned-windows-x64
+          path: artifacts/PartitionStudio-unsigned-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: PartitionStudio-test-reports
+          path: artifacts/tests/
+          if-no-files-found: warn
+          retention-days: 14
+
