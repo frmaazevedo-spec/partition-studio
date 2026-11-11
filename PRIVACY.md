@@ -1,4 +1,4 @@
-# Privacy policy — draft
+# Privacy policy â€” draft
 
 Partition Studio has no implemented telemetry, advertising, automatic update service, or intentional upload of disk inventories, file contents, SMART data, images or recovery reports.
 
@@ -8,5 +8,5 @@ Windows commands invoked by an explicitly requested operation remain subject to 
 
 Build-time dependency downloads, cloud build logs, repository hosting and future signing requests are development activities, distinct from application telemetry. GitHub and a future signing provider process their own account/build metadata under their terms. The maintainer must review public artifacts to ensure they do not contain real disk inventories, secrets or personal data.
 
-No contact details or diagnostic results from the original development machine are included in the publication draft. Contact is pending repository creation; the connected GitHub maintainer proposed in the README is not presented here as a legal identity.
+No contact details or diagnostic results from the original development machine are included in the publication draft. The public repository is https://github.com/frmaazevedo-spec/partition-studio; the connected GitHub maintainer proposed in the README is not presented here as a legal identity.
 

@@ -1,10 +1,10 @@
-# Code signing policy — not yet active
+# Code signing policy â€” not yet active
 
 Signing status: **none**. SignPath Foundation application status: **draft, not submitted, not approved**. There is no signing certificate, account token, approved project identifier or signing policy identifier configured in this repository.
 
 ## Proposed responsibilities
 
-- Source maintainer/committer: GitHub account `frmaazevedo-spec`, subject to confirmation.
+- Source maintainer/committer: GitHub account `frmaazevedo-spec`, confirmed as the public repository owner; release-signing responsibility still requires provider configuration.
 - Reviewer: the same maintainer for external contributions; additional reviewers may be appointed as the project grows.
 - Release/signing approver: the maintainer, using an explicit manual approval after reviewing source revision, CI result, artifact and disk-operation risk.
 

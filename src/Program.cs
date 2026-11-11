@@ -43,8 +43,15 @@ public static class Backend
         using var process = Process.Start(info) ?? throw new Exception("Não foi possível iniciar o Windows PowerShell.");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        await process.StandardInput.WriteAsync(command); process.StandardInput.Close();
-        await process.WaitForExitAsync();
+        bool readOnly=request.Action is "Inventory" or "Topology" or "Health" or "Inspect" or "Limits" or "BackupTarget";
+        using var timeout=new CancellationTokenSource();if(readOnly)timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        try{
+            await process.StandardInput.WriteAsync(command.AsMemory(),timeout.Token);process.StandardInput.Close();
+            await process.WaitForExitAsync(timeout.Token);
+        }catch(OperationCanceledException)when(readOnly){
+            try{if(!process.HasExited)process.Kill(entireProcessTree:true);await process.WaitForExitAsync();}catch(InvalidOperationException){}
+            throw new TimeoutException("A leitura dos discos excedeu 45 segundos. Pode tentar novamente.");
+        }
         string output = await stdout, error = await stderr;
         if(process.ExitCode != 0) throw new Exception(string.IsNullOrWhiteSpace(error) ? output : error);
         return output.Trim();
@@ -69,25 +76,30 @@ public class MainWindow : Form
     readonly Metric diskMetric=new(){Caption="DISCOS LIGADOS",IconKey="disk"}, capacityMetric=new(){Caption="CAPACIDADE TOTAL",IconKey="queue",Accent=Ui.Teal}, partitionMetric=new(){Caption="PARTIÇÕES",IconKey="shield",Accent=Color.FromArgb(153,108,232)};
     readonly ActivityIndicator activity=new();
     readonly System.Windows.Forms.Timer entrance=new(){Interval=16};
+    readonly System.Windows.Forms.Timer deviceRefresh=new(){Interval=1200},devicePoll=new(){Interval=30000};
+    readonly CheckBox watchDisks=new(){Text="Deteção automática",AutoSize=true,Checked=true,ForeColor=Ui.Muted};
+    bool probeBusy,deviceDirty;string? monitorError;
     Disk[] disks=[]; Disk? selectedDisk; Part? selectedPart; bool busy; readonly bool smoke;
-    public MainWindow(bool smoke=false)
+    public MainWindow(bool smoke=false,Disk[]? initialDisks=null)
     {
         this.smoke=smoke;
         Text="Partition Studio · Gestão e recuperação"; Width=1460; Height=1000; MinimumSize=new Size(1250,950);
         DoubleBuffered=true;StartPosition=FormStartPosition.CenterScreen;BackColor=Ui.Bg;ForeColor=Ui.Ink;Font=new Font("Segoe UI",10);
-        using(var mark=Ui.IconBitmap("disk",Ui.Blue,32))Icon=(Icon)Icon.FromHandle(mark.GetHicon()).Clone();
+        Icon=Brand.Icon;
         var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=3,Padding=new Padding(16)};
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,258));root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,94));root.RowStyles.Add(new RowStyle(SizeType.Percent,100));root.RowStyles.Add(new RowStyle(SizeType.Absolute,34));Controls.Add(root);
         var brand=new Panel{Dock=DockStyle.Fill,BackColor=Ui.Navy,Margin=Padding.Empty,Padding=new Padding(19)};
-        var logo=new PictureBox{Image=Ui.IconBitmap("disk",Color.FromArgb(154,178,255),32),Bounds=new Rectangle(20,20,32,32)};brand.Controls.Add(logo);
+        var logo=new PictureBox{Image=Brand.Logo,SizeMode=PictureBoxSizeMode.Zoom,Bounds=new Rectangle(13,13,44,44)};brand.Controls.Add(logo);
         var title=Ui.Label("Partition Studio",15,true);title.ForeColor=Color.White;title.Location=new Point(61,19);brand.Controls.Add(title);
         var edition=Ui.Label("GESTÃO & RECUPERAÇÃO",8);edition.ForeColor=Color.FromArgb(139,156,187);edition.Location=new Point(22,58);brand.Controls.Add(edition);root.Controls.Add(brand,0,0);
         var header=new Panel{Dock=DockStyle.Fill,Margin=new Padding(22,0,0,0)};summary.Text="O seu armazenamento, organizado.";summary.Font=new Font("Segoe UI",21,FontStyle.Bold);summary.Location=new Point(0,8);header.Controls.Add(summary);
         var subtitle=Ui.Label("Visão geral  /  Discos e partições",10);subtitle.ForeColor=Ui.Muted;subtitle.Location=new Point(2,53);header.Controls.Add(subtitle);
         var motion=new CheckBox{Text="Animações",AutoSize=true,Checked=Ui.MotionEnabled,Anchor=AnchorStyles.Top|AnchorStyles.Right,ForeColor=Ui.Muted};
         motion.Location=new Point(880,59);motion.CheckedChanged+=(_,_)=>{Ui.MotionEnabled=motion.Checked;if(!Ui.MotionEnabled){entrance.Stop();Opacity=1;}activity.Active=busy;};header.Controls.Add(motion);
-        header.Resize+=(_,_)=>motion.Left=Math.Max(0,header.ClientSize.Width-motion.Width-10);root.Controls.Add(header,1,0);
+        watchDisks.Location=new Point(650,59);header.Controls.Add(watchDisks);
+        watchDisks.CheckedChanged+=(_,_)=>{if(smoke)return;if(watchDisks.Checked){devicePoll.Start();ScheduleRefresh();}else{devicePoll.Stop();deviceRefresh.Stop();deviceDirty=false;}RefreshStatus();};
+        header.Resize+=(_,_)=>{motion.Left=Math.Max(0,header.ClientSize.Width-motion.Width-10);watchDisks.Left=Math.Max(260,motion.Left-watchDisks.Width-18);};root.Controls.Add(header,1,0);
         var side=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=5,ColumnCount=1,BackColor=Ui.Navy,Padding=new Padding(18,15,16,10),Margin=Padding.Empty};
         side.RowStyles.Add(new RowStyle(SizeType.Absolute,30));side.RowStyles.Add(new RowStyle(SizeType.Absolute,300));side.RowStyles.Add(new RowStyle(SizeType.Absolute,34));side.RowStyles.Add(new RowStyle(SizeType.Percent,100));side.RowStyles.Add(new RowStyle(SizeType.Absolute,45));
         Label SideLabel(string text){var l=Ui.Label(text,8.5f,true);l.ForeColor=Color.FromArgb(143,160,189);return l;}
@@ -105,7 +117,7 @@ public class MainWindow : Form
         apply=Ui.Button("Aplicar alterações (0)",async (_,_)=>await Apply(),true);apply.Dock=DockStyle.Fill;qpanel.Controls.Add(apply,0,1);
         var remove=(MotionButton)Ui.Button("Remover da fila",(_,_)=>{if(!busy&&queue.SelectedIndex>=0){pending.RemoveAt(queue.SelectedIndex);UpdateQueue();}});remove.Dark=true;remove.Dock=DockStyle.Fill;qpanel.Controls.Add(remove,0,2);
         var note=Ui.Label("Uma operação por disco.\nReveja os destinos antes de aplicar.",8.5f);note.ForeColor=Color.FromArgb(139,156,187);qpanel.Controls.Add(note,0,3);side.Controls.Add(qpanel,0,3);
-        var version=SideLabel("●  WINDOWS x64     /     v0.3.1-dev");version.ForeColor=Color.FromArgb(117,201,184);side.Controls.Add(version,0,4);root.Controls.Add(side,0,1);
+        var version=SideLabel("●  WINDOWS x64     /     v0.4-dev");version.ForeColor=Color.FromArgb(117,201,184);side.Controls.Add(version,0,4);root.Controls.Add(side,0,1);
         var body=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Margin=new Padding(20,0,0,0)};
         body.RowStyles.Add(new RowStyle(SizeType.Absolute,123));body.RowStyles.Add(new RowStyle(SizeType.Absolute,50));body.RowStyles.Add(new RowStyle(SizeType.Percent,100));body.RowStyles.Add(new RowStyle(SizeType.Absolute,174));body.RowStyles.Add(new RowStyle(SizeType.Absolute,132));body.RowStyles.Add(new RowStyle(SizeType.Absolute,90));root.Controls.Add(body,1,1);
         var metrics=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Margin=new Padding(0,0,0,12)};
@@ -134,21 +146,57 @@ public class MainWindow : Form
         var footer=new Panel{Dock=DockStyle.Fill,Margin=new Padding(0,4,0,0)};activity.Location=new Point(0,0);footer.Controls.Add(activity);status.Location=new Point(29,5);status.Font=new Font("Segoe UI",8.5f);status.ForeColor=Ui.Muted;footer.Controls.Add(status);root.Controls.Add(footer,0,2);root.SetColumnSpan(footer,2);
         entrance.Tick+=(_,_)=>{Opacity=Math.Min(1,Opacity+.09);if(Opacity>=1)entrance.Stop();};
         FormClosing+=(_,e)=>{if(busy){e.Cancel=true;MessageBox.Show(this,"Aguarde a conclusão da operação.");}else if(pending.Count>0&&MessageBox.Show(this,"Sair e descartar a fila?","Partition Studio",MessageBoxButtons.YesNo)!=DialogResult.Yes)e.Cancel=true;};
-        Shown+=async (_,_)=>{if(!smoke&&Ui.MotionEnabled){Opacity=.12;entrance.Start();}if(smoke)RenderSample();else await LoadDisks();};UpdateQueue();
+        deviceRefresh.Tick+=async (_,_)=>{
+            if(!watchDisks.Checked||smoke){deviceRefresh.Stop();return;}
+            if(busy||probeBusy||!Enabled)return;
+            deviceRefresh.Stop();if(!deviceDirty)return;deviceDirty=false;await LoadDisks(automatic:true);
+        };
+        devicePoll.Tick+=async (_,_)=>await ProbeDevices();
+        Shown+=async (_,_)=>{
+            if(!smoke&&Ui.MotionEnabled){Opacity=.12;entrance.Start();}
+            if(smoke)RenderSample();
+            else{if(initialDisks is not null){disks=initialDisks;Render();Write("Discos carregados antes de abrir a janela principal.");}else await LoadDisks();if(watchDisks.Checked)devicePoll.Start();}
+        };UpdateQueue();
     }
-    protected override void Dispose(bool disposing){if(disposing)entrance.Dispose();base.Dispose(disposing);}
+    protected override void Dispose(bool disposing){if(disposing){entrance.Dispose();deviceRefresh.Dispose();devicePoll.Dispose();}base.Dispose(disposing);}
+    protected override void WndProc(ref Message message)
+    {
+        base.WndProc(ref message);
+        if(message.Msg==0x0219&&message.WParam.ToInt64() is 7 or 0x8000 or 0x8004)ScheduleRefresh();
+    }
+    void ScheduleRefresh()
+    {
+        if(smoke||IsDisposed||Disposing||!watchDisks.Checked)return;deviceDirty=true;deviceRefresh.Stop();deviceRefresh.Start();
+    }
+    async Task ProbeDevices()
+    {
+        if(smoke||IsDisposed||Disposing||!watchDisks.Checked||busy||probeBusy||!Enabled)return;
+        probeBusy=true;
+        try{
+            var current=JsonSerializer.Deserialize<HardwareDisk[]>(await Backend.Run(new("Topology"),"Advanced.ps1"))??[];
+            if(IsDisposed||Disposing)return;
+            monitorError=null;
+            if(DiskTopology.HardwareFingerprint(current)!=DiskTopology.HardwareFingerprint(disks))ScheduleRefresh();
+        }catch(Exception ex){if(!IsDisposed&&!Disposing&&monitorError!=ex.Message){monitorError=ex.Message;Write("Deteção automática indisponível: "+ex.Message);}}
+        finally{probeBusy=false;}
+    }
+    void RefreshStatus()=>status.Text=(Backend.Admin?"Administrador":"Modo de leitura · elevação necessária para gerir discos")+"   |   Deteção automática: "+(watchDisks.Checked?"ativa":"desligada")+"   |   v0.4";
     void Write(string text) {if(log.TextLength>0)log.AppendText(Environment.NewLine);log.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}");}
-    async Task Work(Func<Task> action)
+    async Task Work(Func<Task> action,bool showError=true)
     {
         if(busy)return; busy=true; SetButtons();
-        try {await action();} catch(Exception ex){Write("ERRO: "+ex.Message);MessageBox.Show(this,ex.Message,"Operação não concluída",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
-        finally{busy=false;SetButtons();}
+        try {await action();} catch(Exception ex){if(!IsDisposed){Write("ERRO: "+ex.Message);if(showError)MessageBox.Show(this,ex.Message,"Operação não concluída",MessageBoxButtons.OK,MessageBoxIcon.Warning);}}
+        finally{busy=false;if(!IsDisposed)SetButtons();}
     }
-    async Task LoadDisks() => await Work(async ()=>{
+    async Task LoadDisks(bool automatic=false) => await Work(async ()=>{
         status.Text="A ler discos reais…";
-        disks=JsonSerializer.Deserialize<Disk[]>(await Backend.Run(new("Inventory")))??[]; Render();
-        Write($"Inventário atualizado: {disks.Length} discos. Nenhuma alteração executada.");
-    });
+        var current=JsonSerializer.Deserialize<Disk[]>(await Backend.Run(new("Inventory")))??[];if(IsDisposed||Disposing)return;
+        bool changed=DiskTopology.Changed(disks,current);string? identity=selectedDisk?.UniqueId;int? part=selectedPart?.Number;
+        if(changed&&pending.Count>0){pending.Clear();UpdateQueue();Write("A ligação ou disposição dos discos mudou. A fila foi descartada; reveja os destinos.");}
+        disks=current;
+        if(!automatic||changed){Render();foreach(DataGridViewRow row in grid.Rows)if(row.Tag is ValueTuple<Disk,Part?> x&&x.Item1.UniqueId==identity&&x.Item2?.Number==part){grid.CurrentCell=row.Cells[0];break;}Write($"{(automatic?"Discos detetados automaticamente":"Inventário atualizado")}: {disks.Length} discos. Nenhuma alteração executada.");}
+        RefreshStatus();
+    },showError:!automatic);
     void Render()
     {
         grid.Rows.Clear(); foreach(Control map in maps.Controls.Cast<Control>().ToArray())map.Dispose(); maps.Controls.Clear();
@@ -168,7 +216,7 @@ public class MainWindow : Form
             maps.Controls.Add(map);
         }
         summary.Text="O seu armazenamento, organizado.";
-        status.Text=(Backend.Admin?"Administrador":"Modo de leitura · abra como administrador para gerir discos")+"   |   Disco de sistema protegido   |   v0.3.1-dev";
+        RefreshStatus();
         SelectRow();
     }
     void SelectRow()
@@ -295,7 +343,13 @@ static class Program
 {
     [STAThread] static int Main(string[] args)
     {
+        bool testMode=args.Any(a=>a is "--self-test" or "--extended-self-test" or "--file-tests");
+        void Trace(string phase){if(testMode)File.AppendAllText(Path.Combine(AppContext.BaseDirectory,"self-test-progress.txt"),phase+Environment.NewLine);}
+        Trace("entered Main");
+        if(testMode)Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         ApplicationConfiguration.Initialize();
+        Trace("application configured");
+        if(args.Contains("--file-tests"))return EngineTests.Run(args.Last(),false);
         if(args.Contains("--extended-self-test"))return EngineTests.Run(args.Last());
         if(args.Contains("--diagnose")) {
             try {File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"diagnostico.json"),Task.Run(()=>Backend.Run(new("Inventory"))).GetAwaiter().GetResult());return 0;}
@@ -311,13 +365,21 @@ static class Program
                 Assert(!Backend.Eligible(d with{ReadOnly=true},p,"Create"),"Readonly protection");Assert(!Backend.Eligible(d,p with{GptType="recovery"},"Delete"),"GPT type protection");
                 Assert(Backend.Script.Contains("UniqueId")&&Backend.Script.Contains("OfflineScanAndFix"),"Embedded backend");
                 var copy=JsonSerializer.Deserialize<Disk[]>(JsonSerializer.Serialize(new[]{d}));Assert(copy![0].Partitions[0]==p,"JSON round trip");
-                using var form=new MainWindow(true);form.Show();var settle=Stopwatch.StartNew();while(settle.ElapsedMilliseconds<450){Application.DoEvents();Thread.Sleep(16);}
-                using var bitmap=new Bitmap(form.Width,form.Height);form.DrawToBitmap(bitmap,new Rectangle(0,0,form.Width,form.Height));bitmap.Save(Path.Combine(AppContext.BaseDirectory,"verificacao-visual.png"));
+                Trace("model assertions passed; constructing main window");
+                using var form=new MainWindow(true);Trace("main window constructed");form.Show();Trace("main window shown");var settle=Stopwatch.StartNew();while(settle.ElapsedMilliseconds<450){Application.DoEvents();Thread.Sleep(16);}
+                using var bitmap=new Bitmap(form.Width,form.Height);form.DrawToBitmap(bitmap,new Rectangle(0,0,form.Width,form.Height));bitmap.Save(Path.Combine(AppContext.BaseDirectory,"verificacao-visual.png"));Trace("normal screenshot saved");
                 form.Size=form.MinimumSize;Application.DoEvents();
-                using var compact=new Bitmap(form.Width,form.Height);form.DrawToBitmap(compact,new Rectangle(0,0,form.Width,form.Height));compact.Save(Path.Combine(AppContext.BaseDirectory,"verificacao-compacta.png"));form.Close();
+                using var compact=new Bitmap(form.Width,form.Height);form.DrawToBitmap(compact,new Rectangle(0,0,form.Width,form.Height));compact.Save(Path.Combine(AppContext.BaseDirectory,"verificacao-compacta.png"));form.Close();Trace("main window test finished");
+                var gate=new TaskCompletionSource<Disk[]>(TaskCreationOptions.RunContinuationsAsynchronously);bool startupReady=false;
+                using(var splash=new StartupWindow(()=>gate.Task,_=>startupReady=true)){
+                    splash.Show();Application.DoEvents();Assert(!startupReady,"Startup must await inventory");
+                    using var preview=new Bitmap(splash.Width,splash.Height);splash.DrawToBitmap(preview,new Rectangle(0,0,splash.Width,splash.Height));preview.Save(Path.Combine(AppContext.BaseDirectory,"verificacao-arranque.png"));
+                    gate.SetResult(StartupWindow.Sample());var wait=Stopwatch.StartNew();while(!startupReady&&wait.ElapsedMilliseconds<3000){Application.DoEvents();Thread.Sleep(16);}Assert(startupReady,"Startup completes after inventory");splash.Close();
+                }
+                Trace("startup UI test finished");
                 File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"self-test.txt"),"PASS: 8 verificações; interface renderizada. Nenhuma escrita em discos de dados.\n");return 0;
             }catch(Exception ex){File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"self-test.txt"),ex.ToString());return 1;}
         }
-        Application.Run(new MainWindow());return 0;
+        Application.Run(new StudioApplicationContext());return 0;
     }
 }

@@ -1,12 +1,12 @@
-# Publication review — owner action required
+# Publication review â€” owner action required
 
-This is a local preparation package. Nothing has been pushed to GitHub or submitted to SignPath.
+The owner approved public source publication. The reviewed 31-file snapshot was published in commit d42862c25402af5ff869d5d4d3856dd75bb9d2c2. Subsequent development is tracked in the repository; no SignPath application has been submitted.
 
-Proposed destination: a new **public** repository named `partition-studio` under the connected account `frmaazevedo-spec`. Confirm the owner/name and public visibility before any repository creation or push. Original source is MIT; verify that you wish to publish it under that license. The repository includes substantial AI-assisted initial code that still requires human review, especially physical-device operations.
+Verified public destination: https://github.com/frmaazevedo-spec/partition-studio under the connected account `frmaazevedo-spec`. Original source is MIT; verify that you wish to publish it under that license. The repository includes substantial AI-assisted initial code that still requires human review, especially physical-device operations.
 
 ## Included
 
-- Original C#/PowerShell source, test code and metadata for `0.3.1-preview.1`.
+- Original C#/PowerShell source, test code and metadata for `0.4.0-preview.1`.
 - Readme, operations/privacy/security/signing policies and contributor guidance.
 - Draft CI using pinned action commits, read-only permissions and file-only/mocked tests.
 - An honest application draft describing the new project's lack of established reputation and remaining validation.

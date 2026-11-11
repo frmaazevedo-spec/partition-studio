@@ -1,3 +1,4 @@
+param([switch]$IncludeGui)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
 $exe=Join-Path $root 'artifacts/app/PartitionStudio.exe'
@@ -28,17 +29,24 @@ try{
     $lines | ForEach-Object {$results.Add([string]$_)}
     if($LASTEXITCODE -ne 0){throw "Mocked storage guard tests failed: $name"}
   }
-  Invoke-SelfTest -Arguments @('--self-test')
-  $results.Add('PASS: existing model/UI self-test')
-  Invoke-SelfTest -Arguments @('--extended-self-test',$reports)
-  $results.Add('PASS: file-only disk engine tests and tools UI')
-  foreach($name in @('verificacao-visual.png','verificacao-compacta.png','self-test.txt')){
-    Copy-Item -LiteralPath (Join-Path $root "artifacts/app/$name") -Destination (Join-Path $reports $name)
+  Invoke-SelfTest -Arguments @('--file-tests',$reports)
+  $results.Add('PASS: file-only model and disk engine tests')
+  if($IncludeGui){
+    Invoke-SelfTest -Arguments @('--self-test')
+    $results.Add('PASS: existing model/UI self-test')
+    Invoke-SelfTest -Arguments @('--extended-self-test',$reports)
+    $results.Add('PASS: desktop rendering tests')
+  }else{
+    $results.Add('NOT RUN: desktop rendering; use -IncludeGui in an authorized interactive Windows session.')
   }
 }catch{
   $results.Add('FAIL: '+$_.Exception.Message)
   throw
 }finally{
+  foreach($name in @('verificacao-visual.png','verificacao-compacta.png','verificacao-arranque.png','self-test.txt','self-test-progress.txt')){
+    $path=Join-Path $root "artifacts/app/$name"
+    if(Test-Path -LiteralPath $path){Copy-Item -LiteralPath $path -Destination (Join-Path $reports $name)}
+  }
   $results | Set-Content -Encoding utf8 -LiteralPath (Join-Path $reports 'ci-results.txt')
 }
 

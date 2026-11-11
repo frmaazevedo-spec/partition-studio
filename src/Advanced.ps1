@@ -26,6 +26,13 @@ function Get-TargetDisk([string]$path) {
 try {
   $r=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($RequestBase64)) | ConvertFrom-Json
   Import-Module Storage
+  if ($r.Action -eq 'Topology') {
+    $items=@(Get-Disk | Sort-Object Number | ForEach-Object {
+      [ordered]@{Number=[int]$_.Number;UniqueId=[string]$_.UniqueId;Serial=[string]$_.SerialNumber;Size=[long]$_.Size;
+        Style=[string]$_.PartitionStyle;Offline=[bool]$_.IsOffline;ReadOnly=[bool]$_.IsReadOnly;Boot=[bool]$_.IsBoot;System=[bool]$_.IsSystem}
+    })
+    ConvertTo-Json -InputObject $items -Depth 4 -Compress;exit 0
+  }
   if ($r.Action -eq 'BackupTarget') {
     $target=Get-TargetDisk $r.Path
     if ($target.Disk.Number -eq $r.Disk.Number) {throw 'A imagem tem de ficar noutro disco físico.'}

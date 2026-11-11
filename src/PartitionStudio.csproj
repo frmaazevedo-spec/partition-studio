@@ -2,11 +2,15 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
-    <AssemblyName>PartitionStudio</AssemblyName><Version>0.3.1-preview.1</Version>
-    <AssemblyVersion>0.3.1.0</AssemblyVersion><FileVersion>0.3.1.0</FileVersion>
+    <AssemblyName>PartitionStudio</AssemblyName><Version>0.4.0-preview.1</Version>
+    <AssemblyVersion>0.4.0.0</AssemblyVersion><FileVersion>0.4.0.0</FileVersion>
+    <ApplicationIcon>Assets/AppIcon.ico</ApplicationIcon>
     <Product>Partition Studio</Product><Title>Partition Studio</Title>
     <Description>Experimental Windows disk management and recovery utility</Description>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
-  <ItemGroup><EmbeddedResource Include="Storage.ps1" /><EmbeddedResource Include="Advanced.ps1" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="Storage.ps1" /><EmbeddedResource Include="Advanced.ps1" />
+    <EmbeddedResource Include="Assets/BrandMark.png" LogicalName="PartitionStudio.BrandMark.png" />
+    <EmbeddedResource Include="Assets/AppIcon.ico" LogicalName="PartitionStudio.AppIcon.ico" />
+  </ItemGroup>
 </Project>

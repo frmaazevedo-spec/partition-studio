@@ -2,7 +2,13 @@
 
 Experimental Windows disk management, recovery launcher, health inspection, and backup/cloning utility. Independent project; not affiliated with MiniTool, Microsoft, CGSecurity, or SignPath.
 
-**Status: source publication draft, 0.3.1-preview.1. Not signed, not approved by SignPath, and not production-ready.** Windows Smart App Control blocked execution of the local unsigned 0.3 build. This source candidate does not resolve that block by itself. The project is seeking a legitimate signing route without changing Windows security policies.
+**Status: public experimental source preview, 0.4.0-preview.1. Not signed, not approved by SignPath, and not production-ready.** Windows Smart App Control blocked execution of the local unsigned 0.3 build. This source candidate does not resolve that block by itself. The project is seeking a legitimate signing route without changing Windows security policies.
+
+## Startup and automatic disk detection
+
+The application displays its own logo and an initial loading window while it reads the real disk/partition inventory. The main window opens after that read succeeds. Failed reads offer retry; read-only backend requests time out after 45 seconds. The indicator is indeterminate rather than a fabricated scan percentage.
+
+Automatic detection is on by default and can be switched off in the header. Windows device-change notifications are debounced before a read-only refresh; a 30-second hardware-topology probe is a fallback. Refresh is deferred during operations and modal dialogs. When disk identity/state/layout changes, unapplied queued operations are discarded with a log entry so destinations can be reviewed again. Ordinary free-space changes do not invalidate the queue. No automatic initialization, formatting or repair occurs.
 
 ## Features and limits
 
@@ -20,7 +26,7 @@ Physical sector relocation is controlled by device firmware. CHKDSK bad-cluster 
 
 **Do not use this preview on irreplaceable data.** RAW copy/restore, physical-disk scanning, wbadmin/VSS, optimization and CHKDSK /r have not been validated on disposable physical disks during initial development. File-only/mocked tests and successful compilation do not replace that validation. No cloned operating system has been boot-tested. Interrupted clone/restore operations can leave their target incomplete; no rollback is implemented.
 
-The local 0.3 build passed model, file-copy/hash, simulated sector-error and UI tests in an earlier build. Windows App Control prevented final executable re-tests after subsequent adjustments. The added error-limit test is pending execution in an authorized test environment. The draft CI workflow has **not yet run on GitHub**. No automated test intentionally opens a physical disk, invokes wbadmin, or repairs/optimizes a real volume.
+The local 0.3 build passed model, file-copy/hash, simulated sector-error and UI tests in an earlier build. Windows App Control prevented final executable re-tests after subsequent adjustments. The added error-limit test is pending execution in an authorized test environment. The [first public CI run](https://github.com/frmaazevedo-spec/partition-studio/actions/runs/43040385462) compiled successfully and passed the mocked guard tests, then timed out in the desktop-rendering self-test. Test diagnostics and a separate `--file-tests` mode have been added. Consult [current CI results](https://github.com/frmaazevedo-spec/partition-studio/actions) for the latest outcome; do not treat a workflow file or a successful build as a passing UI test. No automated test intentionally opens a physical disk, invokes wbadmin, or repairs/optimizes a real volume.
 
 ## Build and test
 
@@ -29,10 +35,12 @@ Requirements: Windows 10/11 x64, .NET SDK 8.0.424, PowerShell 7 for scripts, and
 ```powershell
 ./scripts/Build.ps1
 ./scripts/Test.ps1
+# In an authorized interactive Windows session, also run:
+./scripts/Test.ps1 -IncludeGui
 ./scripts/Package.ps1
 ```
 
-The unsigned executable is generated in `artifacts/app`. `Test.ps1` uses test switches with synthetic data and workspace files; storage guard scripts replace storage commands with mocks. The unsigned ZIP is packaged only after those tests pass. On a device that blocks the binary, stop and record the failure; do not change App Control or use another loader to evade the restriction.
+The unsigned executable is generated in `artifacts/app`. `Test.ps1` runs model/file-transfer/topology tests without creating windows. `-IncludeGui` additionally exercises desktop rendering and the startup gate. Both modes use synthetic data and workspace files; storage guard scripts replace storage commands with mocks. The unsigned ZIP is packaged only after those tests pass. On a device that blocks the binary, stop and record the failure; do not change App Control or use another loader to evade the restriction.
 
 GitHub Actions builds on `windows-2022`, pins action commits, uses a read-only token, executes file-only tests and uploads an explicitly unsigned candidate. There is no signing secret, signing request, public release publishing or deployment in that workflow. A trusted CI build is a traceable build, not a claim of bit-for-bit reproducibility across different SDK/runtime environments.
 
@@ -44,7 +52,9 @@ The application has no installer/service or autostart entry. Close it and delete
 
 ## Code signing policy
 
-**No signing provider has accepted this project. No signed release is currently available.** Proposed maintainership, review and release approval: [frmaazevedo-spec](https://github.com/frmaazevedo-spec), subject to confirmation when the repository is created. See [SIGNING.md](SIGNING.md), [PRIVACY.md](PRIVACY.md) and [docs/SIGNPATH-APPLICATION-DRAFT.md](docs/SIGNPATH-APPLICATION-DRAFT.md).
+**No signing provider has accepted this project. No signed release is currently available.** Repository maintainer and proposed release/signing approver: [frmaazevedo-spec](https://github.com/frmaazevedo-spec). Signing-account MFA and provider-side approval remain unverified/unconfigured. See [SIGNING.md](SIGNING.md), [PRIVACY.md](PRIVACY.md) and [docs/SIGNPATH-APPLICATION-DRAFT.md](docs/SIGNPATH-APPLICATION-DRAFT.md).
 
 The MIT license applies to original project code; bundled system runtimes and optional upstream recovery utilities retain their own licenses. See [LICENSE.txt](LICENSE.txt) and [THIRD-PARTY.md](THIRD-PARTY.md).
 
+
+The project logo is an AI-generated original asset supplied for this project; see [brand asset notes](BRANDING.md).

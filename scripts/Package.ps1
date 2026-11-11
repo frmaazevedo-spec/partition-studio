@@ -7,13 +7,14 @@ if(-not (Test-Path -LiteralPath $exe)){throw 'Build the application first.'}
 $resultFile=Join-Path $reports 'ci-results.txt'
 if(-not (Test-Path -LiteralPath $resultFile)){throw 'File-only tests have not run.'}
 $results=Get-Content -LiteralPath $resultFile -Raw
-if($results -match 'FAIL:' -or $results -notmatch 'PASS: file-only disk engine tests and tools UI'){throw 'Required tests did not pass. No candidate will be packaged.'}
+if($results -match 'FAIL:' -or $results -notmatch 'PASS: file-only model and disk engine tests'){throw 'Required tests did not pass. No candidate will be packaged.'}
 $release=Join-Path $root ('artifacts/release-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $release|Out-Null
 Copy-Item -LiteralPath $exe -Destination $release
-foreach($name in @('README.md','LICENSE.txt','PRIVACY.md','THIRD-PARTY.md','SIGNING.md','DOTNET-LICENSE.txt','DOTNET-THIRD-PARTY-NOTICES.txt')){
+foreach($name in @('README.md','LICENSE.txt','PRIVACY.md','THIRD-PARTY.md','SIGNING.md','BRANDING.md','DOTNET-LICENSE.txt','DOTNET-THIRD-PARTY-NOTICES.txt')){
   Copy-Item -LiteralPath (Join-Path $root $name) -Destination $release
 }
+Copy-Item -LiteralPath (Join-Path $root 'docs') -Destination (Join-Path $release 'docs') -Recurse
 Copy-Item -LiteralPath $reports -Destination (Join-Path $release 'verification') -Recurse
 $manifest=[ordered]@{}
 foreach($file in Get-ChildItem -LiteralPath $release -File -Recurse){

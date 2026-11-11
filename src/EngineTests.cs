@@ -5,13 +5,33 @@ namespace PartitionStudio;
 
 public static class EngineTests
 {
-    public static int Run(string directory)
+    public static int Run(string directory,bool renderUi=true)
     {
         var results=new List<string>();
         try{
             if(!Path.IsPathFullyQualified(directory))throw new ArgumentException("Indique uma pasta absoluta de testes.");Directory.CreateDirectory(directory);
             void Check(bool condition,string label){if(!condition)throw new Exception(label);results.Add("PASS: "+label);}
             void Reject(Action work,string label){try{work();}catch(IOException){results.Add("PASS: "+label);return;}throw new Exception("Guard failed: "+label);}
+            var modelPart=new Part(1,1048576,1L<<30,"D","Teste","NTFS",1L<<29,false,false,false,"Basic","{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}",0);
+            var modelDisk=new Disk(1,"Teste","abc","123",2L<<30,"GPT",false,false,false,false,"Healthy",1L<<30,[modelPart]);
+            Check(Backend.Eligible(modelDisk,modelPart,"Resize"),"Modelo aceita volume NTFS de dados");
+            Check(!Backend.Eligible(modelDisk with{Boot=true},modelPart,"Delete"),"Modelo protege disco de arranque");
+            Check(!Backend.Eligible(modelDisk,modelPart with{Hidden=true},"Format"),"Modelo protege partição oculta");
+            Check(!Backend.Eligible(modelDisk,modelPart with{FileSystem="exFAT"},"Repair"),"Modelo limita reparação a NTFS");
+            Check(!Backend.Eligible(modelDisk with{ReadOnly=true},modelPart,"Create"),"Modelo protege disco só de leitura");
+            Check(!Backend.Eligible(modelDisk,modelPart with{GptType="recovery"},"Delete"),"Modelo protege partição GPT especial");
+            Check(Backend.Script.Contains("UniqueId")&&Backend.Script.Contains("OfflineScanAndFix"),"Backend original incorporado");
+            Check(JsonSerializer.Deserialize<Disk[]>(JsonSerializer.Serialize(new[]{modelDisk}))![0].Partitions[0]==modelPart,"Serialização do inventário preserva partição");
+            Check(!DiskTopology.Changed([modelDisk],[modelDisk with{Partitions=[modelPart with{Free=123}]}]),"Espaço livre variável não invalida destinos");
+            Check(DiskTopology.Changed([modelDisk],[modelDisk,modelDisk with{Number=2,UniqueId="other"}]),"Deteta disco adicionado");
+            Check(DiskTopology.Changed([modelDisk],[]),"Deteta disco removido");
+            Check(DiskTopology.Changed([modelDisk],[modelDisk with{UniqueId="replacement"}]),"Deteta substituição mesmo com o mesmo número");
+            Check(DiskTopology.Changed([modelDisk],[modelDisk with{Partitions=[modelPart with{Offset=2097152}]}]),"Deteta mudança da disposição de partições");
+            Check(DiskTopology.Changed([modelDisk],[modelDisk with{Offline=true}]),"Deteta mudança de estado offline");
+            var hardware=new[]{new HardwareDisk(modelDisk.Number,modelDisk.UniqueId,modelDisk.Serial,modelDisk.Size,modelDisk.Style,modelDisk.Offline,modelDisk.ReadOnly,modelDisk.Boot,modelDisk.System)};
+            Check(DiskTopology.HardwareFingerprint(hardware)==DiskTopology.HardwareFingerprint([modelDisk]),"Sondagem de hardware corresponde ao inventário");
+            using(var image=typeof(Brand).Assembly.GetManifestResourceStream("PartitionStudio.BrandMark.png"))Check(image is not null&&image.Length>100,"Logótipo incorporado no executável");
+            using(var icon=typeof(Brand).Assembly.GetManifestResourceStream("PartitionStudio.AppIcon.ico"))Check(icon is not null&&icon.Length>100,"Ícone Windows incorporado no executável");
             var a=new DeviceState(7,true,false,false,false,512,4096,2L<<20,"GPT");var b=a with{Number=8};
             DiskEngine.ValidateClone(a,b);Check(true,"Discos offline compatíveis aceites");
             Reject(()=>DiskEngine.ValidateClone(a,a),"Recusa origem igual ao destino");
@@ -38,11 +58,11 @@ public static class EngineTests
             using(var cancelled=new CancellationTokenSource()){cancelled.Cancel();using var input=new MemoryStream(bytes);var scan=DiskEngine.ScanCore(input,bytes.Length,512,cancelled.Token);Check(!scan.Complete&&scan.Checked==0,"Pesquisa cancelada é marcada incompleta");}
             var part=new Part(1,1048576,180L<<30,"D","Arquivo · exemplo","NTFS",85L<<30,false,false,false,"Basic","{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}",0);
             var disk=new Disk(1,"Disco de teste — apenas pré-visualização","sample","sample",256L<<30,"GPT",false,false,false,false,"Healthy",75L<<30,[part]);
-            using(var form=new ToolsWindow([disk],disk,true)){
+            if(renderUi)using(var form=new ToolsWindow([disk],disk,true)){
                 form.Show();Application.DoEvents();
                 for(int i=0;i<3;i++){form.SelectPreviewTab(i);Application.DoEvents();using var screenshot=new Bitmap(form.Width,form.Height);form.DrawToBitmap(screenshot,new Rectangle(0,0,form.Width,form.Height));screenshot.Save(Path.Combine(directory,$"ferramentas-{i}.png"));}form.Close();
             }
-            results.Add("PASS: três separadores de ferramentas renderizados com dados artificiais");
+            results.Add(renderUi?"PASS: três separadores de ferramentas renderizados com dados artificiais":"NOT RUN: renderização de interface não faz parte do modo --file-tests.");
             results.Add("Nenhum disco físico foi aberto nem alterado nestes testes. Acesso RAW e wbadmin não foram executados.");
             File.WriteAllLines(Path.Combine(directory,"extended-tests.txt"),results);return 0;
         }catch(Exception ex){results.Add("FAIL: "+ex);try{File.WriteAllLines(Path.Combine(directory,"extended-tests.txt"),results);}catch{}return 1;}

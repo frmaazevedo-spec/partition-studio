@@ -27,7 +27,7 @@ jobs:
         run: ./scripts/Build.ps1
       - name: File-only tests and mocked storage guard tests
         shell: pwsh
-        run: ./scripts/Test.ps1
+        run: ./scripts/Test.ps1 -IncludeGui
       - name: Package unsigned candidate
         shell: pwsh
         run: ./scripts/Package.ps1
